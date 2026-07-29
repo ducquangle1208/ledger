@@ -23,6 +23,7 @@ public enum ErrorCode {
     CURRENCY_MISMATCH(409, "Currency mismatch"),
     INSUFFICIENT_FUNDS(409, "Insufficient funds"),
     IDEMPOTENCY_CONFLICT(409, "Idempotency key conflict"),
+    IDEMPOTENCY_IN_PROGRESS(409, "Idempotency request is in progress"),
 
     // 500
     INTERNAL_ERROR(500, "Internal server error");
