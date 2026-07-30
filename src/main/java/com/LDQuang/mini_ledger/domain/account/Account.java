@@ -10,6 +10,8 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import lombok.AccessLevel;
+import com.LDQuang.mini_ledger.api.error.BusinessException;
+import com.LDQuang.mini_ledger.api.error.ErrorCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.JdbcTypeCode;
@@ -17,6 +19,7 @@ import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Map;
 
 @Entity
 @Table(name = "accounts")
@@ -74,6 +77,31 @@ public class Account {
     public void changeStatus(AccountStatus status) {
         this.status = status;
         touch();
+    }
+
+    public void debit(BigDecimal amount) {
+        requireActive();
+        if (balance.compareTo(amount) < 0) {
+            throw new BusinessException(ErrorCode.INSUFFICIENT_FUNDS,
+                    "Account " + id + " does not have enough funds",
+                    Map.of("accountId", id, "balance", balance, "requested", amount));
+        }
+        balance = balance.subtract(amount);
+        touch();
+    }
+
+    public void credit(BigDecimal amount) {
+        requireActive();
+        balance = balance.add(amount);
+        touch();
+    }
+
+    private void requireActive() {
+        if (status != AccountStatus.ACTIVE) {
+            throw new BusinessException(ErrorCode.ACCOUNT_INACTIVE,
+                    "Account " + id + " is not active",
+                    Map.of("accountId", id, "status", status.name()));
+        }
     }
 
     private void touch() {
