@@ -2,7 +2,7 @@
 
 Mục tiêu: xây một backend mô phỏng hệ thống ngân hàng/ví điện tử thu nhỏ, đủ để luyện và khoe trọn bộ kỹ năng: thiết kế DB chuẩn hóa, ACID, concurrency control, isolation level, audit log bất biến, index/EXPLAIN ANALYZE, cursor pagination, Redis cache, migration tool, benchmark, integration test chống mất tiền.
 
-**Stack đề xuất:** Java 21 + Spring Boot 3.x, PostgreSQL 16, Redis 7, Flyway, Spring Data JPA, Testcontainers, JMH/k6, Docker Compose.
+**Stack đề xuất:** Java 21 + Spring Boot 4.1, PostgreSQL 16, Redis 7, Flyway, Spring Data JPA, Testcontainers, JMH/k6, Docker Compose.
 
 ---
 

@@ -24,6 +24,7 @@ public enum ErrorCode {
     INSUFFICIENT_FUNDS(409, "Insufficient funds"),
     IDEMPOTENCY_CONFLICT(409, "Idempotency key conflict"),
     IDEMPOTENCY_IN_PROGRESS(409, "Idempotency request is in progress"),
+    DATA_INTEGRITY_VIOLATION(409, "Request conflicts with persisted data"),
 
     // 500
     INTERNAL_ERROR(500, "Internal server error");
