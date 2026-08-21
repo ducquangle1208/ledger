@@ -14,6 +14,8 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -28,37 +30,43 @@ class ApiErrorHandlingTests {
 
     @Test
     void missingIdempotencyKeyReturnsStandardValidationError() throws Exception {
-        mockMvc.perform(post("/api/v1/deposits")
+        mockMvc.perform(post("/api/v1/faucet/claims")
+                        .with(user("1"))
+                        .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"accountId": 1, "amount": "10.00", "currency": "VND"}
+                                {"accountId": 1}
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
                 .andExpect(jsonPath("$.message").value("Required request header is missing"))
-                .andExpect(jsonPath("$.path").value("/api/v1/deposits"))
+                .andExpect(jsonPath("$.path").value("/api/v1/faucet/claims"))
                 .andExpect(jsonPath("$.details.header").value("Idempotency-Key"));
     }
 
     @Test
     void malformedJsonReturnsStandardValidationError() throws Exception {
-        mockMvc.perform(post("/api/v1/deposits")
+        mockMvc.perform(post("/api/v1/faucet/claims")
+                        .with(user("1"))
+                        .with(csrf())
                         .header("Idempotency-Key", "malformed-json")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"accountId\": 1,"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
                 .andExpect(jsonPath("$.message").value("Malformed request body"))
-                .andExpect(jsonPath("$.path").value("/api/v1/deposits"));
+                .andExpect(jsonPath("$.path").value("/api/v1/faucet/claims"));
     }
 
     @Test
     void invalidRequestReturnsStandardValidationError() throws Exception {
         mockMvc.perform(post("/api/v1/transfers")
+                        .with(user("1"))
+                        .with(csrf())
                         .header("Idempotency-Key", "invalid-request")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"fromAccountId": null, "toAccountId": 2, "amount": "0.00", "currency": "VN"}
+                                {"fromAccountId": null, "recipientAccountNumber": "", "amount": "0.00"}
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
@@ -66,7 +74,7 @@ class ApiErrorHandlingTests {
                 .andExpect(jsonPath("$.path").value("/api/v1/transfers"))
                 .andExpect(jsonPath("$.details.fromAccountId").exists())
                 .andExpect(jsonPath("$.details.amount").exists())
-                .andExpect(jsonPath("$.details.currency").exists());
+                .andExpect(jsonPath("$.details.recipientAccountNumber").exists());
     }
 
     @Test

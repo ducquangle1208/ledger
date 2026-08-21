@@ -1,0 +1,31 @@
+spring:
+  docker:
+    compose:
+      enabled: false
+  jpa:
+    properties:
+      hibernate:
+        generate_statistics: false
+  main:
+    banner-mode: off
+
+server:
+  servlet:
+    session:
+      cookie:
+        secure: true
+  tomcat:
+    remoteip:
+      remote-ip-header: X-Forwarded-For
+      protocol-header: X-Forwarded-Proto
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+
+logging:
+  level:
+    root: INFO
+    org.hibernate.SQL: WARN

@@ -1,9 +1,14 @@
 package com.LDQuang.mini_ledger;
 
+import com.LDQuang.mini_ledger.api.deposit.DepositRequest;
+import com.LDQuang.mini_ledger.api.error.BusinessException;
+import com.LDQuang.mini_ledger.api.error.ErrorCode;
+import com.LDQuang.mini_ledger.api.transaction.MoneyMovementResponse;
 import com.LDQuang.mini_ledger.api.transfer.TransferRequest;
 import com.LDQuang.mini_ledger.domain.account.Account;
 import com.LDQuang.mini_ledger.domain.account.AccountRepository;
 import com.LDQuang.mini_ledger.domain.account.AccountStatus;
+import com.LDQuang.mini_ledger.common.AccountNumberGenerator;
 import com.LDQuang.mini_ledger.domain.idempotency.IdempotencyKeyRepository;
 import com.LDQuang.mini_ledger.domain.idempotency.IdempotencyService;
 import com.LDQuang.mini_ledger.domain.transaction.EntryType;
@@ -33,6 +38,9 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -64,51 +72,44 @@ class MoneyMovementFlowTests {
     @Autowired
     MoneyMovementService moneyMovementService;
 
+    @Autowired
+    com.LDQuang.mini_ledger.domain.user.UserService userService;
+
+    @Autowired
+    com.LDQuang.mini_ledger.domain.account.AccountService accountService;
+
     @Test
-    void depositCreatesBalancedLedgerAndReplaysSafely() throws Exception {
+    void depositCreatesBalancedLedgerAndReplaysSafely() {
         long accountId = createUserAndAccount("deposit", "VND");
         String key = "deposit-" + UUID.randomUUID();
+        DepositRequest request = new DepositRequest(
+                accountId, new BigDecimal("100000.00"), "VND", "Initial funding");
 
-        MvcResult first = mockMvc.perform(post("/api/v1/deposits")
-                        .header("Idempotency-Key", key)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"accountId": %d, "amount": "100000.00", "currency": "VND", "description": "Initial funding"}
-                                """.formatted(accountId)))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.type").value("DEPOSIT"))
-                .andExpect(jsonPath("$.status").value("COMPLETED"))
-                .andExpect(jsonPath("$.creditAccountId").value(accountId))
-                .andExpect(jsonPath("$.replayed").value(false))
-                .andReturn();
+        IdempotencyService.IdempotencyResult<MoneyMovementResponse> first =
+                moneyMovementService.deposit(request, key);
 
-        long transactionId = read(first, "transactionId").asLong();
+        assertThat(first.replayed()).isFalse();
+        assertThat(first.response().type()).isEqualTo("DEPOSIT");
+        assertThat(first.response().status()).isEqualTo("COMPLETED");
+        assertThat(first.response().creditAccountId()).isEqualTo(accountId);
+        long transactionId = first.response().transactionId();
         assertThat(accountRepository.findById(accountId).orElseThrow().getBalance())
                 .isEqualByComparingTo("100000.00");
         assertThat(transactionEntryRepository.countByTransactionId(transactionId)).isEqualTo(2);
 
-        mockMvc.perform(post("/api/v1/deposits")
-                        .header("Idempotency-Key", key)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"accountId": %d, "amount": "100000.00", "currency": "VND", "description": "Initial funding"}
-                                """.formatted(accountId)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.transactionId").value(transactionId))
-                .andExpect(jsonPath("$.replayed").value(true));
-
+        IdempotencyService.IdempotencyResult<MoneyMovementResponse> replayed =
+                moneyMovementService.deposit(request, key);
+        assertThat(replayed.replayed()).isTrue();
+        assertThat(replayed.response().transactionId()).isEqualTo(transactionId);
         assertThat(accountRepository.findById(accountId).orElseThrow().getBalance())
                 .isEqualByComparingTo("100000.00");
         assertThat(transactionEntryRepository.countByTransactionId(transactionId)).isEqualTo(2);
 
-        mockMvc.perform(post("/api/v1/deposits")
-                        .header("Idempotency-Key", key)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"accountId": %d, "amount": "100001.00", "currency": "VND", "description": "Initial funding"}
-                                """.formatted(accountId)))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("IDEMPOTENCY_CONFLICT"));
+        DepositRequest changed = new DepositRequest(
+                accountId, new BigDecimal("100001.00"), "VND", "Initial funding");
+        assertThatThrownBy(() -> moneyMovementService.deposit(changed, key))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.IDEMPOTENCY_CONFLICT));
     }
 
     @Test
@@ -151,8 +152,11 @@ class MoneyMovementFlowTests {
         MvcResult transfer = transfer(senderId, receiverId, "125000.00", "VND", "Detail test",
                 "detail-" + UUID.randomUUID());
         long transactionId = read(transfer, "transactionId").asLong();
+        Long senderUserId = accountRepository.findById(senderId).orElseThrow().getUserId();
 
-        mockMvc.perform(get("/api/v1/transactions/{transactionId}", transactionId))
+        mockMvc.perform(get("/api/v1/transactions/{transactionId}", transactionId)
+                        .with(csrf())
+                        .with(user(senderUserId.toString())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(transactionId))
                 .andExpect(jsonPath("$.type").value("TRANSFER"))
@@ -175,21 +179,21 @@ class MoneyMovementFlowTests {
         long accountId = createUserAndAccount("empty", "VND");
 
         mockMvc.perform(post("/api/v1/transfers")
+                        .with(csrf())
+                        .with(user(accountRepository.findById(accountId).orElseThrow().getUserId().toString()))
                         .header("Idempotency-Key", "insufficient-" + UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"fromAccountId": %d, "toAccountId": %d, "amount": "10.00", "currency": "VND"}
-                                """.formatted(accountId, accountId)))
+                        .content(transferJson(accountId, accountId, "10.00", "VND", null)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("SAME_ACCOUNT"));
 
         long otherId = createUserAndAccount("empty-receiver", "VND");
         mockMvc.perform(post("/api/v1/transfers")
+                        .with(csrf())
+                        .with(user(accountRepository.findById(accountId).orElseThrow().getUserId().toString()))
                         .header("Idempotency-Key", "insufficient-" + UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"fromAccountId": %d, "toAccountId": %d, "amount": "10.00", "currency": "VND"}
-                                """.formatted(accountId, otherId)))
+                        .content(transferJson(accountId, otherId, "10.00", "VND", null)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INSUFFICIENT_FUNDS"));
 
@@ -206,6 +210,8 @@ class MoneyMovementFlowTests {
         String key = "rollback-" + UUID.randomUUID();
 
         mockMvc.perform(post("/api/v1/transfers")
+                        .with(csrf())
+                        .with(user(accountRepository.findById(senderId).orElseThrow().getUserId().toString()))
                         .header("Idempotency-Key", key)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(transferJson(senderId, receiverId, "10.00", "VND", "Rollback test")))
@@ -217,6 +223,8 @@ class MoneyMovementFlowTests {
 
         deposit(senderId, "10.00", "VND");
         mockMvc.perform(post("/api/v1/transfers")
+                        .with(csrf())
+                        .with(user(accountRepository.findById(senderId).orElseThrow().getUserId().toString()))
                         .header("Idempotency-Key", key)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(transferJson(senderId, receiverId, "10.00", "VND", "Rollback test")))
@@ -230,11 +238,13 @@ class MoneyMovementFlowTests {
     @Test
     void rejectsCurrencyMismatchWithoutPersistingMovement() throws Exception {
         long senderId = createUserAndAccount("currency-sender", "VND");
-        long receiverId = createUserAndAccount("currency-receiver", "USD");
+        long receiverId = createUserAndAccountWithInternalCurrency("currency-receiver", "USD");
         deposit(senderId, "100.00", "VND");
         long transactionCountBefore = ledgerTransactionRepository.count();
 
         mockMvc.perform(post("/api/v1/transfers")
+                        .with(csrf())
+                        .with(user(accountRepository.findById(senderId).orElseThrow().getUserId().toString()))
                         .header("Idempotency-Key", "currency-" + UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(transferJson(senderId, receiverId, "10.00", "VND", "Currency mismatch")))
@@ -257,6 +267,8 @@ class MoneyMovementFlowTests {
         accountRepository.saveAndFlush(frozen);
 
         mockMvc.perform(post("/api/v1/transfers")
+                        .with(csrf())
+                        .with(user(accountRepository.findById(frozenId).orElseThrow().getUserId().toString()))
                         .header("Idempotency-Key", "inactive-" + UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(transferJson(frozenId, receiverId, "10.00", "VND", "Frozen account")))
@@ -264,6 +276,8 @@ class MoneyMovementFlowTests {
                 .andExpect(jsonPath("$.code").value("ACCOUNT_INACTIVE"));
 
         mockMvc.perform(post("/api/v1/transfers")
+                        .with(csrf())
+                        .with(user(accountRepository.findById(frozenId).orElseThrow().getUserId().toString()))
                         .header("Idempotency-Key", "missing-" + UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(transferJson(999_999_999L, receiverId, "10.00", "VND", "Missing account")))
@@ -280,8 +294,10 @@ class MoneyMovementFlowTests {
         long receiverId = createUserAndAccount("same-key-receiver", "VND");
         deposit(senderId, "100.00", "VND");
         String key = "same-key-" + UUID.randomUUID();
-        TransferRequest request = new TransferRequest(senderId, receiverId, new BigDecimal("10.00"),
-                "VND", "Concurrent idempotency");
+        String receiverNumber = accountRepository.findById(receiverId).orElseThrow().getAccountNumber();
+        Long senderUserId = accountRepository.findById(senderId).orElseThrow().getUserId();
+        TransferRequest request = new TransferRequest(senderId, receiverNumber, new BigDecimal("10.00"),
+                "Concurrent idempotency");
 
         ExecutorService pool = Executors.newFixedThreadPool(2);
         CountDownLatch ready = new CountDownLatch(2);
@@ -292,7 +308,7 @@ class MoneyMovementFlowTests {
             futures.add(pool.submit(() -> {
                 ready.countDown();
                 assertThat(start.await(10, TimeUnit.SECONDS)).isTrue();
-                return moneyMovementService.transfer(request, key);
+                return moneyMovementService.transfer(senderUserId, request, key);
             }));
         }
 
@@ -338,8 +354,11 @@ class MoneyMovementFlowTests {
                     start.await();
                     long from = fromA ? accountA : accountB;
                     long to = fromA ? accountB : accountA;
+                    Account source = accountRepository.findById(from).orElseThrow();
+                    Account target = accountRepository.findById(to).orElseThrow();
                     moneyMovementService.transfer(
-                            new TransferRequest(from, to, new BigDecimal("10.00"), "VND", "concurrent"),
+                            source.getUserId(),
+                            new TransferRequest(from, target.getAccountNumber(), new BigDecimal("10.00"), "concurrent"),
                             "concurrent-" + UUID.randomUUID());
                 } catch (Throwable ex) {
                     synchronized (failures) {
@@ -365,6 +384,8 @@ class MoneyMovementFlowTests {
     private MvcResult transfer(long senderId, long receiverId, String amount, String currency,
                                String description, String key) throws Exception {
         return mockMvc.perform(post("/api/v1/transfers")
+                        .with(csrf())
+                        .with(user(accountRepository.findById(senderId).orElseThrow().getUserId().toString()))
                         .header("Idempotency-Key", key)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(transferJson(senderId, receiverId, amount, currency, description)))
@@ -376,38 +397,36 @@ class MoneyMovementFlowTests {
     }
 
     private String transferJson(long senderId, long receiverId, String amount, String currency, String description) {
+        String receiverNumber = accountRepository.findById(receiverId)
+                .map(Account::getAccountNumber)
+                .orElse("ML9999999999");
+        String descriptionJson = description == null ? "null" : "\"" + description + "\"";
         return """
-                {"fromAccountId": %d, "toAccountId": %d, "amount": "%s", "currency": "%s", "description": "%s"}
-                """.formatted(senderId, receiverId, amount, currency, description);
+                {"fromAccountId":%d,"recipientAccountNumber":"%s","amount":"%s","description":%s}
+                """.formatted(senderId, receiverNumber, amount, descriptionJson);
     }
 
-    private void deposit(long accountId, String amount, String currency) throws Exception {
-        mockMvc.perform(post("/api/v1/deposits")
-                        .header("Idempotency-Key", "fund-" + UUID.randomUUID())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"accountId": %d, "amount": "%s", "currency": "%s"}
-                                """.formatted(accountId, amount, currency)))
-                .andExpect(status().isCreated());
+    private void deposit(long accountId, String amount, String currency) {
+        moneyMovementService.deposit(
+                new DepositRequest(accountId, new BigDecimal(amount), currency, "Test funding"),
+                "fund-" + UUID.randomUUID());
     }
 
-    private long createUserAndAccount(String prefix, String currency) throws Exception {
+    private long createUserAndAccount(String prefix, String currency) {
         String suffix = UUID.randomUUID().toString().substring(0, 8);
-        MvcResult user = mockMvc.perform(post("/api/v1/users")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"username":"%s-%s","email":"%s-%s@example.com","password":"Secret123!"}
-                                """.formatted(prefix, suffix, prefix, suffix)))
-                .andExpect(status().isCreated())
-                .andReturn();
-        long userId = read(user, "id").asLong();
+        com.LDQuang.mini_ledger.domain.user.User user = userService.create(
+                prefix + "-" + suffix, prefix + "-" + suffix + "@example.com", "Secret123!");
+        return accountService.create(user.getId(), currency).getId();
+    }
 
-        MvcResult account = mockMvc.perform(post("/api/v1/accounts")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"userId\": %d, \"currency\": \"%s\"}".formatted(userId, currency)))
-                .andExpect(status().isCreated())
-                .andReturn();
-        return read(account, "id").asLong();
+    private long createUserAndAccountWithInternalCurrency(String prefix, String currency) {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        com.LDQuang.mini_ledger.domain.user.User user = userService.create(
+                prefix + "-" + suffix, prefix + "-" + suffix + "@example.com", "Secret123!");
+        Account account = accountRepository.saveAndFlush(
+                new Account(user.getId(), AccountNumberGenerator.pendingNumber(), currency));
+        account.assignAccountNumber(AccountNumberGenerator.accountNumber(account.getId()));
+        return accountRepository.saveAndFlush(account).getId();
     }
 
     private JsonNode read(MvcResult result, String field) throws Exception {

@@ -1,13 +1,17 @@
 spring:
   application:
     name: mini_ledger
-
+  profiles:
+    default: local
   datasource:
-    url: jdbc:postgresql://localhost:5433/mini_ledger
-    username: ledger
-    password: ledger
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/mini_ledger}
+    username: ${DB_USERNAME:ledger}
+    password: ${DB_PASSWORD:ledger}
     driver-class-name: org.postgresql.Driver
-
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:10}
+      minimum-idle: ${DB_POOL_MIN_IDLE:2}
+      connection-timeout: 30000
   jpa:
     open-in-view: false
     hibernate:
@@ -16,15 +20,42 @@ spring:
       hibernate:
         jdbc:
           time_zone: UTC
-
   flyway:
     enabled: true
-
+  session:
+    store-type: jdbc
+    timeout: ${SESSION_TIMEOUT:30m}
+    jdbc:
+      initialize-schema: never
   data:
     redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
       repositories:
         enabled: false
 
 server:
   error:
     include-message: never
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        same-site: lax
+        secure: ${SESSION_COOKIE_SECURE:false}
+  shutdown: graceful
+  forward-headers-strategy: framework
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  health:
+    redis:
+      enabled: false

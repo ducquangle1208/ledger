@@ -13,7 +13,6 @@ public record AccountResponse(
         String currency,
         BigDecimal balance,
         AccountStatus status,
-        Long version,
         Instant createdAt,
         Instant updatedAt
 ) {
@@ -25,7 +24,6 @@ public record AccountResponse(
                 account.getCurrency(),
                 account.getBalance(),
                 account.getStatus(),
-                account.getVersion(),
                 account.getCreatedAt(),
                 account.getUpdatedAt()
         );

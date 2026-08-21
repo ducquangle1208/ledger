@@ -102,8 +102,11 @@ public class GlobalExceptionHandler {
     private String httpReasonPhrase(int status) {
         return switch (status) {
             case 400 -> "Bad Request";
+            case 401 -> "Unauthorized";
+            case 403 -> "Forbidden";
             case 404 -> "Not Found";
             case 409 -> "Conflict";
+            case 429 -> "Too Many Requests";
             default -> "Error";
         };
     }

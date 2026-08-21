@@ -30,6 +30,12 @@ public class MoneyMovementService {
     @Transactional(rollbackFor = Exception.class)
     public IdempotencyService.IdempotencyResult<MoneyMovementResponse> deposit(
             DepositRequest request, String idempotencyKey) {
+        return depositInternal(request, idempotencyKey);
+    }
+
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public IdempotencyService.IdempotencyResult<MoneyMovementResponse> depositInternal(
+            DepositRequest request, String idempotencyKey) {
         var idempotency = idempotencyService.reserveOrReplay(
                 idempotencyKey, "DEPOSIT", request, MoneyMovementResponse.class);
         if (idempotency.replayed()) {
@@ -60,8 +66,16 @@ public class MoneyMovementService {
 
     @Transactional(rollbackFor = Exception.class)
     public IdempotencyService.IdempotencyResult<MoneyMovementResponse> transfer(
-            TransferRequest request, String idempotencyKey) {
-        if (request.fromAccountId().equals(request.toAccountId())) {
+            Long userId, TransferRequest request, String idempotencyKey) {
+        Long sourceId = accountRepository.findOwnedId(request.fromAccountId(), userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.ACCOUNT_NOT_FOUND,
+                        "Source account not found", Map.of("accountId", request.fromAccountId())));
+        Long destinationId = accountRepository.findPublicIdByAccountNumber(
+                        normalizeAccountNumber(request.recipientAccountNumber()), SYSTEM_CASH_ACCOUNT_NUMBER_PREFIX + "%")
+                .orElseThrow(() -> new BusinessException(ErrorCode.ACCOUNT_NOT_FOUND,
+                        "Recipient account not found",
+                        Map.of("accountNumber", request.recipientAccountNumber())));
+        if (sourceId.equals(destinationId)) {
             throw new BusinessException(ErrorCode.SAME_ACCOUNT,
                     "Source and destination accounts must be different");
         }
@@ -72,13 +86,10 @@ public class MoneyMovementService {
             return idempotency;
         }
 
-        String currency = normalizeCurrency(request.currency());
-        requireAccountId(request.fromAccountId());
-        requireAccountId(request.toAccountId());
-
-        LockedPair pair = lockPair(request.fromAccountId(), request.toAccountId());
-        Account debit = pair.accountFor(request.fromAccountId());
-        Account credit = pair.accountFor(request.toAccountId());
+        LockedPair pair = lockPair(sourceId, destinationId);
+        Account debit = pair.accountFor(sourceId);
+        Account credit = pair.accountFor(destinationId);
+        String currency = normalizeCurrency(debit.getCurrency());
         validateCurrency(currency, debit, credit);
 
         debit.debit(request.amount());
@@ -101,7 +112,11 @@ public class MoneyMovementService {
 
     @Transactional(readOnly = true)
     public java.util.List<TransactionEntry> getEntries(Long transactionId) {
-        getTransaction(transactionId);
+        if (!ledgerTransactionRepository.existsById(transactionId)) {
+            throw new BusinessException(ErrorCode.TRANSACTION_NOT_FOUND,
+                    "Transaction with id " + transactionId + " not found",
+                    Map.of("transactionId", transactionId));
+        }
         return transactionEntryRepository.findByTransactionIdOrderByIdAsc(transactionId);
     }
 
@@ -153,6 +168,10 @@ public class MoneyMovementService {
 
     private String normalizeCurrency(String currency) {
         return currency.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private String normalizeAccountNumber(String accountNumber) {
+        return accountNumber.trim().toUpperCase(Locale.ROOT);
     }
 
     private record LockedPair(Account lower, Account higher) {

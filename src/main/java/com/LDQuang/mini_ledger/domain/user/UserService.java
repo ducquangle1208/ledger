@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Map;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -40,5 +41,10 @@ public class UserService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND,
                         "User with id " + id + " not found",
                         Map.of("userId", id)));
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<User> findByLogin(String login) {
+        return userRepository.findByUsernameIgnoreCaseOrEmailIgnoreCase(login, login);
     }
 }
