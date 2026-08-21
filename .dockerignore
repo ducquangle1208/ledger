@@ -1,0 +1,11 @@
+.git
+.github
+.claude
+frontend
+**/node_modules
+**/dist
+target
+*.log
+.env*
+secrets
+backups

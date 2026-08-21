@@ -10,9 +10,8 @@ import java.math.BigDecimal;
 
 public record TransferRequest(
         @NotNull Long fromAccountId,
-        @NotNull Long toAccountId,
+        @NotBlank @Size(max = 20) String recipientAccountNumber,
         @NotNull @DecimalMin(value = "0.01") @Digits(integer = 16, fraction = 2) BigDecimal amount,
-        @NotBlank @Size(min = 3, max = 3) String currency,
         @Size(max = 500) String description
 ) {
 }

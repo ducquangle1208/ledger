@@ -32,3 +32,17 @@ build/
 ### VS Code ###
 .vscode/
 CLAUDE.md
+.claude/
+
+### Frontend ###
+frontend/node_modules/
+frontend/dist/
+frontend/playwright-report/
+frontend/test-results/
+
+### Runtime secrets ###
+.env
+.env.*
+!.env.example
+secrets/
+backups/
