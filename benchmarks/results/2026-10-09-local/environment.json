@@ -1,0 +1,27 @@
+{
+    "recordedAt":  "2026-10-09T09:14:00.4211220Z",
+    "gitRevision":  "467338f11bd810581adaeda36d3a2c4cf636af1d",
+    "workingTree":  "Uncommitted Priority 1 work; source-sha256.json identifies measured sources",
+    "cpu":  "13th Gen Intel(R) Core(TM) i7-13650HX",
+    "physicalCores":  14,
+    "logicalProcessors":  20,
+    "hostMemoryBytes":  25551560704,
+    "dockerEngine":  "29.6.2",
+    "dockerProcessors":  20,
+    "dockerMemoryBytes":  12428414976,
+    "k6":  "1.0.0 (41b4984b75, go1.24.2, windows/amd64)",
+    "newman":  "6.2.1",
+    "node":  "24.19.0",
+    "postgresImage":  "sha256:e17e86066e5ef83e0952a9347f5c792b7ece00972e2aa787a6986f471b3dd3d5",
+    "redisImage":  "sha256:e9b2e45ecd47fbb69b877cf8d045d5cccaaaed52524b6e098b4abe8212994f73",
+    "k6ExitCode":  0,
+    "postmanExitCode":  0,
+    "selectedTestsExitCode":  0,
+    "selectedTests":  12,
+    "notes":  [
+                  "Single local warm-cache run; shared developer machine, background load not controlled",
+                  "Postman test server and its containers were idle during k6; no Postman requests were run concurrently with k6",
+                  "Observed DEBUG application logging in the measured JVM; not a tuned production configuration",
+                  "SQL EXPLAIN and k6 measured sequentially on the same benchmark container; timing instrumentation differs"
+              ]
+}

@@ -1,0 +1,13 @@
+{
+  "transactions": 4,
+  "entries": 8,
+  "auditRecords": 4,
+  "balanceSum": 1000000000000,
+  "accountsHash": "da76338b819b34401243895e560da6d1",
+  "transactionsHash": "f09a2dc833d7399786c8d55d1fb8ffd1",
+  "entriesHash": "50c7e0534fe1d759fab078ee97ffcbb0",
+  "auditHash": "6ff3513d87516294dbe5f0344ed3a8f0",
+  "keysHash": "940e8e8d0bddf420efb5b7b37312fdcf",
+  "claimsHash": "0a86348f32d5430cdbdb7b17e9fd4532",
+  "auditHead": "4a904d42e9e9916244784e317c29b586ad49d6f7af2806f95fabc3adfd1fb7c9"
+}

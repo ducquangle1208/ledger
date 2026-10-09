@@ -1,0 +1,4 @@
+-------------------------------------------------------------------------------
+Test set: com.LDQuang.mini_ledger.MoneyMovementFlowTests
+-------------------------------------------------------------------------------
+Tests run: 9, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 2.127 s -- in com.LDQuang.mini_ledger.MoneyMovementFlowTests

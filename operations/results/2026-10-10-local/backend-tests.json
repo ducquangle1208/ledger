@@ -1,0 +1,75 @@
+{
+  "command": "mvnw.cmd test",
+  "suites": [
+    {
+      "name": "com.LDQuang.mini_ledger.ApiErrorHandlingTests",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 13.079
+    },
+    {
+      "name": "com.LDQuang.mini_ledger.AuditFlowTests",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 5.121
+    },
+    {
+      "name": "com.LDQuang.mini_ledger.AuthOwnershipFlowTests",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.425
+    },
+    {
+      "name": "com.LDQuang.mini_ledger.ConcurrencyQuotaFlowTests",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 1.449
+    },
+    {
+      "name": "com.LDQuang.mini_ledger.FaucetHistoryFlowTests",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.419
+    },
+    {
+      "name": "com.LDQuang.mini_ledger.MiniLedgerApplicationTests",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.021
+    },
+    {
+      "name": "com.LDQuang.mini_ledger.MoneyMovementFlowTests",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 2.021
+    },
+    {
+      "name": "com.LDQuang.mini_ledger.UserAccountFlowTests",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.103
+    }
+  ],
+  "totals": {
+    "tests": 33,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

@@ -7,7 +7,10 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 public class MiniLedgerApplication {
 
 	public static void main(String[] args) {
-		SpringApplication.run(MiniLedgerApplication.class, args);
+		var context = SpringApplication.run(MiniLedgerApplication.class, args);
+		if (context.getEnvironment().getProperty("ledger.audit.verify", Boolean.class, false)) {
+			com.LDQuang.mini_ledger.domain.audit.AuditVerificationCommand.run(context);
+		}
 	}
 
 }

@@ -7,6 +7,7 @@ import com.LDQuang.mini_ledger.api.transaction.MoneyMovementResponse;
 import com.LDQuang.mini_ledger.api.transfer.TransferRequest;
 import com.LDQuang.mini_ledger.domain.account.Account;
 import com.LDQuang.mini_ledger.domain.account.AccountRepository;
+import com.LDQuang.mini_ledger.domain.audit.AuditService;
 import com.LDQuang.mini_ledger.domain.idempotency.IdempotencyService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -26,6 +27,7 @@ public class MoneyMovementService {
     private final LedgerTransactionRepository ledgerTransactionRepository;
     private final TransactionEntryRepository transactionEntryRepository;
     private final IdempotencyService idempotencyService;
+    private final AuditService auditService;
 
     @Transactional(rollbackFor = Exception.class)
     public IdempotencyService.IdempotencyResult<MoneyMovementResponse> deposit(
@@ -36,6 +38,12 @@ public class MoneyMovementService {
     @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
     public IdempotencyService.IdempotencyResult<MoneyMovementResponse> depositInternal(
             DepositRequest request, String idempotencyKey) {
+        return depositInternal(request, idempotencyKey, "system:deposit");
+    }
+
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public IdempotencyService.IdempotencyResult<MoneyMovementResponse> depositInternal(
+            DepositRequest request, String idempotencyKey, String actor) {
         var idempotency = idempotencyService.reserveOrReplay(
                 idempotencyKey, "DEPOSIT", request, MoneyMovementResponse.class);
         if (idempotency.replayed()) {
@@ -59,7 +67,7 @@ public class MoneyMovementService {
 
         MoneyMovementResponse response = persistMovement(
                 idempotencyKey, TransactionType.DEPOSIT, request.amount(), currency, request.description(),
-                debit, credit);
+                debit, credit, actor);
         idempotencyService.complete(idempotencyKey, response);
         return IdempotencyService.IdempotencyResult.newRequest(response);
     }
@@ -97,7 +105,7 @@ public class MoneyMovementService {
 
         MoneyMovementResponse response = persistMovement(
                 idempotencyKey, TransactionType.TRANSFER, request.amount(), currency, request.description(),
-                debit, credit);
+                debit, credit, "user:" + userId);
         idempotencyService.complete(idempotencyKey, response);
         return IdempotencyService.IdempotencyResult.newRequest(response);
     }
@@ -122,15 +130,17 @@ public class MoneyMovementService {
 
     private MoneyMovementResponse persistMovement(String referenceCode, TransactionType type,
                                                   BigDecimal amount, String currency, String description,
-                                                  Account debit, Account credit) {
+                                                  Account debit, Account credit, String actor) {
         LedgerTransaction transaction = ledgerTransactionRepository.save(
                 LedgerTransaction.completed(referenceCode, type, amount, currency, description));
         transactionEntryRepository.save(TransactionEntry.debit(
                 transaction, debit.getId(), amount, debit.getBalance()));
         transactionEntryRepository.save(TransactionEntry.credit(
                 transaction, credit.getId(), amount, credit.getBalance()));
-        return MoneyMovementResponse.created(
+        MoneyMovementResponse response = MoneyMovementResponse.created(
                 transaction, debit.getId(), debit.getBalance(), credit.getId(), credit.getBalance());
+        auditService.appendMovement(response, actor);
+        return response;
     }
 
     private Long requireAccountId(Long id) {

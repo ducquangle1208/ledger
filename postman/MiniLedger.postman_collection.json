@@ -2,764 +2,216 @@
   "info": {
     "_postman_id": "5faefbc8-9646-49d2-970e-2f158ec69a91",
     "name": "MiniLedger — Visual Demo",
-    "description": "Collection demo trực quan cho MiniLedger. Chạy từ trên xuống dưới với environment `MiniLedger Local`. Mỗi request có assertions để kiểm tra status, balance, double-entry, idempotency và rollback. Kafka, Redis cache, authentication và audit hash-chain không thuộc demo hiện tại.",
+    "description": "Demo local theo thứ tự: session + CSRF, ownership, faucet, transfer, double-entry, idempotency, rollback và cursor history. Dùng cookie jar mặc định. Mỗi lần chạy tạo hai user mới; không dùng trên hệ thống chứa tiền thật.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
-  "variable": [
-    { "key": "runSuffix", "value": "" },
-    { "key": "aliceUserId", "value": "" },
-    { "key": "bobUserId", "value": "" },
-    { "key": "aliceAccountId", "value": "" },
-    { "key": "bobAccountId", "value": "" },
-    { "key": "aliceAccountNumber", "value": "" },
-    { "key": "bobAccountNumber", "value": "" },
-    { "key": "depositKey", "value": "" },
-    { "key": "depositTransactionId", "value": "" },
-    { "key": "systemCashAccountId", "value": "" },
-    { "key": "transferKey", "value": "" },
-    { "key": "transferTransactionId", "value": "" },
-    { "key": "aliceBalanceBeforeFailure", "value": "" },
-    { "key": "bobBalanceBeforeFailure", "value": "" }
-  ],
+  "event": [{
+    "listen": "prerequest",
+    "script": { "type": "text/javascript", "exec": [
+      "if (pm.request.method === 'POST') {",
+      "  pm.sendRequest(pm.variables.replaceIn('{{baseUrl}}/api/v1/auth/csrf'), (error, response) => {",
+      "    if (error || response.code !== 200) { throw new Error('Cannot obtain CSRF token'); }",
+      "    const csrf = response.json();",
+      "    pm.request.headers.upsert({key: csrf.headerName, value: csrf.token});",
+      "  });",
+      "}"
+    ] }
+  }],
   "item": [
     {
-      "name": "00 — Khởi tạo phiên demo",
-      "description": "Chạy request này đầu tiên. Script tạo suffix và idempotency keys mới, đồng thời xóa ID từ lần chạy trước.",
+      "name": "00 — Khởi tạo demo và lấy CSRF",
       "event": [
-        {
-          "listen": "prerequest",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "const suffix = Date.now().toString();",
-              "pm.collectionVariables.set('runSuffix', suffix);",
-              "pm.collectionVariables.set('depositKey', `demo-deposit-${suffix}`);",
-              "pm.collectionVariables.set('transferKey', `demo-transfer-${suffix}`);",
-              "['aliceUserId','bobUserId','aliceAccountId','bobAccountId','aliceAccountNumber','bobAccountNumber','depositTransactionId','systemCashAccountId','transferTransactionId','aliceBalanceBeforeFailure','bobBalanceBeforeFailure'].forEach(k => pm.collectionVariables.unset(k));"
-            ]
-          }
-        },
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('Ứng dụng đang hoạt động', () => pm.response.to.have.status(200));",
-              "const json = pm.response.json();",
-              "pm.test('Health status là UP', () => pm.expect(json.status).to.eql('UP'));",
-              "pm.test('Đã tạo dữ liệu phiên demo mới', () => {",
-              "  pm.expect(pm.collectionVariables.get('runSuffix')).to.not.be.empty;",
-              "  pm.expect(pm.collectionVariables.get('depositKey')).to.include('demo-deposit-');",
-              "  pm.expect(pm.collectionVariables.get('transferKey')).to.include('demo-transfer-');",
-              "});"
-            ]
-          }
-        }
+        {"listen":"prerequest","script":{"type":"text/javascript","exec":[
+          "const suffix = pm.variables.replaceIn('{{$guid}}').replace(/-/g, '').slice(0, 16);",
+          "pm.collectionVariables.clear();",
+          "pm.collectionVariables.set('runSuffix', suffix);",
+          "pm.collectionVariables.set('faucetKey', `faucet-${suffix}`);",
+          "pm.collectionVariables.set('transferKey', `transfer-${suffix}`);"
+        ]}},
+        {"listen":"test","script":{"type":"text/javascript","exec":[
+          "pm.test('CSRF endpoint trả token', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().token).to.be.a('string').and.not.empty; });"
+        ]}}
       ],
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": "{{baseUrl}}/actuator/health",
-        "description": "Xác nhận Spring Boot đã sẵn sàng và khởi tạo biến cho toàn bộ demo."
-      }
+      "request":{"method":"GET","header":[],"url":"{{baseUrl}}/api/v1/auth/csrf"}
     },
     {
-      "name": "01 — Chuẩn bị người dùng và tài khoản",
-      "description": "Tạo Alice, Bob và mỗi người một account VND. Các test tự lưu ID và account number để request sau sử dụng.",
-      "item": [
-        {
-          "name": "01.1 — Tạo Alice",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "type": "text/javascript",
-              "exec": [
-                "pm.test('HTTP 201 Created', () => pm.response.to.have.status(201));",
-                "const json = pm.response.json();",
-                "pm.test('User response không chứa password', () => {",
-                "  pm.expect(json.id).to.be.a('number');",
-                "  pm.expect(json.username).to.eql(`alice-${pm.collectionVariables.get('runSuffix')}`);",
-                "  pm.expect(json).to.not.have.property('password');",
-                "  pm.expect(json).to.not.have.property('passwordHash');",
-                "});",
-                "pm.collectionVariables.set('aliceUserId', json.id);"
-              ]
-            }
-          }],
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"username\": \"alice-{{runSuffix}}\",\n  \"email\": \"alice-{{runSuffix}}@example.com\",\n  \"password\": \"Secret123!\"\n}",
-              "options": { "raw": { "language": "json" } }
-            },
-            "url": "{{baseUrl}}/api/v1/users"
-          }
-        },
-        {
-          "name": "01.2 — Tạo Bob",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "type": "text/javascript",
-              "exec": [
-                "pm.test('HTTP 201 Created', () => pm.response.to.have.status(201));",
-                "const json = pm.response.json();",
-                "pm.test('Bob được tạo hợp lệ', () => {",
-                "  pm.expect(json.id).to.be.a('number');",
-                "  pm.expect(json.username).to.eql(`bob-${pm.collectionVariables.get('runSuffix')}`);",
-                "});",
-                "pm.collectionVariables.set('bobUserId', json.id);"
-              ]
-            }
-          }],
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"username\": \"bob-{{runSuffix}}\",\n  \"email\": \"bob-{{runSuffix}}@example.com\",\n  \"password\": \"Secret123!\"\n}",
-              "options": { "raw": { "language": "json" } }
-            },
-            "url": "{{baseUrl}}/api/v1/users"
-          }
-        },
-        {
-          "name": "01.3 — Tạo account VND cho Alice",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "type": "text/javascript",
-              "exec": [
-                "pm.test('HTTP 201 Created', () => pm.response.to.have.status(201));",
-                "const json = pm.response.json();",
-                "pm.test('Account Alice bắt đầu đúng trạng thái', () => {",
-                "  pm.expect(String(json.userId)).to.eql(pm.collectionVariables.get('aliceUserId'));",
-                "  pm.expect(json.accountNumber).to.match(/^ML/);",
-                "  pm.expect(json.currency.trim()).to.eql('VND');",
-                "  pm.expect(Number(json.balance)).to.eql(0);",
-                "  pm.expect(json.status).to.eql('ACTIVE');",
-                "});",
-                "pm.collectionVariables.set('aliceAccountId', json.id);",
-                "pm.collectionVariables.set('aliceAccountNumber', json.accountNumber);"
-              ]
-            }
-          }],
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"userId\": {{aliceUserId}},\n  \"currency\": \"VND\"\n}",
-              "options": { "raw": { "language": "json" } }
-            },
-            "url": "{{baseUrl}}/api/v1/accounts"
-          }
-        },
-        {
-          "name": "01.4 — Tạo account VND cho Bob",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "type": "text/javascript",
-              "exec": [
-                "pm.test('HTTP 201 Created', () => pm.response.to.have.status(201));",
-                "const json = pm.response.json();",
-                "pm.test('Account Bob bắt đầu đúng trạng thái', () => {",
-                "  pm.expect(String(json.userId)).to.eql(pm.collectionVariables.get('bobUserId'));",
-                "  pm.expect(json.accountNumber).to.match(/^ML/);",
-                "  pm.expect(json.currency.trim()).to.eql('VND');",
-                "  pm.expect(Number(json.balance)).to.eql(0);",
-                "  pm.expect(json.status).to.eql('ACTIVE');",
-                "});",
-                "pm.collectionVariables.set('bobAccountId', json.id);",
-                "pm.collectionVariables.set('bobAccountNumber', json.accountNumber);"
-              ]
-            }
-          }],
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"userId\": {{bobUserId}},\n  \"currency\": \"VND\"\n}",
-              "options": { "raw": { "language": "json" } }
-            },
-            "url": "{{baseUrl}}/api/v1/accounts"
-          }
-        },
-        {
-          "name": "01.5 — Liệt kê account của Alice",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "type": "text/javascript",
-              "exec": [
-                "pm.test('HTTP 200 OK', () => pm.response.to.have.status(200));",
-                "const json = pm.response.json();",
-                "pm.test('Danh sách chứa account vừa tạo', () => {",
-                "  pm.expect(json).to.be.an('array').with.lengthOf(1);",
-                "  pm.expect(String(json[0].id)).to.eql(pm.collectionVariables.get('aliceAccountId'));",
-                "});"
-              ]
-            }
-          }],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": "{{baseUrl}}/api/v1/users/{{aliceUserId}}/accounts"
-          }
-        }
-      ]
+      "name":"01 — Tạo Alice (tự đăng nhập)",
+      "request":{"method":"POST","header":[{"key":"Content-Type","value":"application/json"}],"url":"{{baseUrl}}/api/v1/auth/register","body":{"mode":"raw","raw":"{\"username\":\"alice-{{runSuffix}}\",\"email\":\"alice-{{runSuffix}}@example.com\",\"password\":\"DemoSecret123!\"}"}},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":[
+        "pm.test('Alice được tạo, không lộ hash', () => { pm.response.to.have.status(201); pm.expect(pm.response.json()).not.to.have.property('passwordHash'); });",
+        "pm.collectionVariables.set('aliceUserId', String(pm.response.json().id));"
+      ]}}]
     },
     {
-      "name": "02 — Deposit và double-entry",
-      "description": "Nạp 100.000 VND vào Alice. Hệ thống debit SYSTEM_CASH_VND và credit account Alice trong cùng transaction.",
-      "item": [
-        {
-          "name": "02.1 — Deposit 100.000 VND vào Alice",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "type": "text/javascript",
-              "exec": [
-                "pm.test('Request mới trả HTTP 201', () => pm.response.to.have.status(201));",
-                "const json = pm.response.json();",
-                "pm.test('Deposit hoàn tất đúng dữ liệu', () => {",
-                "  pm.expect(json.type).to.eql('DEPOSIT');",
-                "  pm.expect(json.status).to.eql('COMPLETED');",
-                "  pm.expect(Number(json.amount)).to.eql(100000);",
-                "  pm.expect(String(json.creditAccountId)).to.eql(pm.collectionVariables.get('aliceAccountId'));",
-                "  pm.expect(Number(json.creditBalanceAfter)).to.eql(100000);",
-                "  pm.expect(json.replayed).to.eql(false);",
-                "});",
-                "pm.collectionVariables.set('depositTransactionId', json.transactionId);",
-                "pm.collectionVariables.set('systemCashAccountId', json.debitAccountId);"
-              ]
-            }
-          }],
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Idempotency-Key", "value": "{{depositKey}}", "type": "text" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"accountId\": {{aliceAccountId}},\n  \"amount\": \"100000.00\",\n  \"currency\": \"VND\",\n  \"description\": \"Initial demo funding\"\n}",
-              "options": { "raw": { "language": "json" } }
-            },
-            "url": "{{baseUrl}}/api/v1/deposits"
-          }
-        },
-        {
-          "name": "02.2 — Xem hai ledger entries của deposit",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "type": "text/javascript",
-              "exec": [
-                "pm.test('HTTP 200 OK', () => pm.response.to.have.status(200));",
-                "const json = pm.response.json();",
-                "pm.test('Deposit có đúng 2 entries đối ứng', () => {",
-                "  pm.expect(json.entries).to.be.an('array').with.lengthOf(2);",
-                "  const debit = json.entries.find(e => e.entryType === 'DEBIT');",
-                "  const credit = json.entries.find(e => e.entryType === 'CREDIT');",
-                "  pm.expect(debit).to.exist;",
-                "  pm.expect(credit).to.exist;",
-                "  pm.expect(String(debit.accountId)).to.eql(pm.collectionVariables.get('systemCashAccountId'));",
-                "  pm.expect(String(credit.accountId)).to.eql(pm.collectionVariables.get('aliceAccountId'));",
-                "  pm.expect(Number(debit.amount)).to.eql(100000);",
-                "  pm.expect(Number(credit.amount)).to.eql(100000);",
-                "});",
-                "pm.test('Tổng signed entries bằng 0', () => {",
-                "  const signedTotal = json.entries.reduce((sum, e) => sum + (e.entryType === 'DEBIT' ? -Number(e.amount) : Number(e.amount)), 0);",
-                "  pm.expect(signedTotal).to.eql(0);",
-                "});"
-              ]
-            }
-          }],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": "{{baseUrl}}/api/v1/transactions/{{depositTransactionId}}"
-          }
-        },
-        {
-          "name": "02.3 — Kiểm tra balance Alice sau deposit",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "type": "text/javascript",
-              "exec": [
-                "pm.test('HTTP 200 OK', () => pm.response.to.have.status(200));",
-                "const json = pm.response.json();",
-                "pm.test('Balance Alice bằng 100.000', () => {",
-                "  pm.expect(String(json.accountId)).to.eql(pm.collectionVariables.get('aliceAccountId'));",
-                "  pm.expect(Number(json.balance)).to.eql(100000);",
-                "});"
-              ]
-            }
-          }],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": "{{baseUrl}}/api/v1/accounts/{{aliceAccountId}}/balance"
-          }
-        }
-      ]
+      "name":"02 — Tạo account Alice",
+      "request":{"method":"POST","header":[{"key":"Content-Type","value":"application/json"}],"url":"{{baseUrl}}/api/v1/accounts","body":{"mode":"raw","raw":"{\"currency\":\"VND\"}"}},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":[
+        "const j = pm.response.json();",
+        "pm.test('Account thuộc Alice và balance = 0', () => { pm.response.to.have.status(201); pm.expect(String(j.userId)).to.eql(pm.collectionVariables.get('aliceUserId')); pm.expect(Number(j.balance)).to.eql(0); });",
+        "pm.collectionVariables.set('aliceAccountId', String(j.id)); pm.collectionVariables.set('aliceAccountNumber', j.accountNumber);"
+      ]}}]
     },
     {
-      "name": "03 — Transfer và bảo toàn tiền",
-      "description": "Chuyển 30.000 VND từ Alice sang Bob rồi kiểm tra balance và hai ledger entries.",
-      "item": [
-        {
-          "name": "03.1 — Transfer 30.000 VND từ Alice sang Bob",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "type": "text/javascript",
-              "exec": [
-                "pm.test('Request mới trả HTTP 201', () => pm.response.to.have.status(201));",
-                "const json = pm.response.json();",
-                "pm.test('Transfer hoàn tất và trả balance sau giao dịch', () => {",
-                "  pm.expect(json.type).to.eql('TRANSFER');",
-                "  pm.expect(json.status).to.eql('COMPLETED');",
-                "  pm.expect(Number(json.amount)).to.eql(30000);",
-                "  pm.expect(String(json.debitAccountId)).to.eql(pm.collectionVariables.get('aliceAccountId'));",
-                "  pm.expect(Number(json.debitBalanceAfter)).to.eql(70000);",
-                "  pm.expect(String(json.creditAccountId)).to.eql(pm.collectionVariables.get('bobAccountId'));",
-                "  pm.expect(Number(json.creditBalanceAfter)).to.eql(30000);",
-                "  pm.expect(json.replayed).to.eql(false);",
-                "});",
-                "pm.collectionVariables.set('transferTransactionId', json.transactionId);"
-              ]
-            }
-          }],
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Idempotency-Key", "value": "{{transferKey}}", "type": "text" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"fromAccountId\": {{aliceAccountId}},\n  \"toAccountId\": {{bobAccountId}},\n  \"amount\": \"30000.00\",\n  \"currency\": \"VND\",\n  \"description\": \"Demo payment\"\n}",
-              "options": { "raw": { "language": "json" } }
-            },
-            "url": "{{baseUrl}}/api/v1/transfers"
-          }
-        },
-        {
-          "name": "03.2 — Xem double-entry của transfer",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "type": "text/javascript",
-              "exec": [
-                "pm.test('HTTP 200 OK', () => pm.response.to.have.status(200));",
-                "const json = pm.response.json();",
-                "pm.test('Transfer có đúng 2 entries', () => pm.expect(json.entries).to.have.lengthOf(2));",
-                "pm.test('DEBIT và CREDIT cân bằng', () => {",
-                "  const debit = json.entries.find(e => e.entryType === 'DEBIT');",
-                "  const credit = json.entries.find(e => e.entryType === 'CREDIT');",
-                "  pm.expect(String(debit.accountId)).to.eql(pm.collectionVariables.get('aliceAccountId'));",
-                "  pm.expect(String(credit.accountId)).to.eql(pm.collectionVariables.get('bobAccountId'));",
-                "  pm.expect(Number(debit.amount)).to.eql(30000);",
-                "  pm.expect(Number(credit.amount)).to.eql(30000);",
-                "  pm.expect(Number(debit.balanceAfter)).to.eql(70000);",
-                "  pm.expect(Number(credit.balanceAfter)).to.eql(30000);",
-                "});"
-              ]
-            }
-          }],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": "{{baseUrl}}/api/v1/transactions/{{transferTransactionId}}"
-          }
-        },
-        {
-          "name": "03.3 — Balance Alice = 70.000",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "type": "text/javascript",
-              "exec": [
-                "pm.test('HTTP 200 OK', () => pm.response.to.have.status(200));",
-                "pm.test('Alice còn 70.000', () => pm.expect(Number(pm.response.json().balance)).to.eql(70000));"
-              ]
-            }
-          }],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": "{{baseUrl}}/api/v1/accounts/{{aliceAccountId}}/balance"
-          }
-        },
-        {
-          "name": "03.4 — Balance Bob = 30.000",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "type": "text/javascript",
-              "exec": [
-                "pm.test('HTTP 200 OK', () => pm.response.to.have.status(200));",
-                "pm.test('Bob có 30.000', () => pm.expect(Number(pm.response.json().balance)).to.eql(30000));"
-              ]
-            }
-          }],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": "{{baseUrl}}/api/v1/accounts/{{bobAccountId}}/balance"
-          }
-        }
-      ]
+      "name":"03 — Faucet cấp 100.000 VND",
+      "request":{"method":"POST","header":[{"key":"Content-Type","value":"application/json"},{"key":"Idempotency-Key","value":"{{faucetKey}}"}],"url":"{{baseUrl}}/api/v1/faucet/claims","body":{"mode":"raw","raw":"{\"accountId\":{{aliceAccountId}}}"}},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":[
+        "const j = pm.response.json();",
+        "pm.test('Faucet tạo deposit 100.000', () => { pm.response.to.have.status(201); pm.expect(j.type).to.eql('DEPOSIT'); pm.expect(Number(j.creditBalanceAfter)).to.eql(100000); pm.expect(j.replayed).to.eql(false); });",
+        "pm.collectionVariables.set('faucetTransactionId', String(j.transactionId));"
+      ]}}]
     },
     {
-      "name": "04 — Idempotency trực quan",
-      "description": "Replay cùng key/payload phải trả cùng transaction mà không chuyển tiền lần hai; dùng cùng key với payload khác phải conflict.",
-      "item": [
-        {
-          "name": "04.1 — Replay cùng key và cùng payload",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "type": "text/javascript",
-              "exec": [
-                "pm.test('Replay trả HTTP 200', () => pm.response.to.have.status(200));",
-                "const json = pm.response.json();",
-                "pm.test('Server replay đúng movement cũ', () => {",
-                "  pm.expect(json.replayed).to.eql(true);",
-                "  pm.expect(String(json.transactionId)).to.eql(pm.collectionVariables.get('transferTransactionId'));",
-                "  pm.expect(Number(json.debitBalanceAfter)).to.eql(70000);",
-                "  pm.expect(Number(json.creditBalanceAfter)).to.eql(30000);",
-                "});"
-              ]
-            }
-          }],
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Idempotency-Key", "value": "{{transferKey}}", "type": "text" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"fromAccountId\": {{aliceAccountId}},\n  \"toAccountId\": {{bobAccountId}},\n  \"amount\": \"30000.00\",\n  \"currency\": \"VND\",\n  \"description\": \"Demo payment\"\n}",
-              "options": { "raw": { "language": "json" } }
-            },
-            "url": "{{baseUrl}}/api/v1/transfers"
-          }
-        },
-        {
-          "name": "04.2 — Xác nhận Alice không bị trừ lần hai",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "type": "text/javascript",
-              "exec": [
-                "pm.test('HTTP 200 OK', () => pm.response.to.have.status(200));",
-                "pm.test('Alice vẫn còn 70.000', () => pm.expect(Number(pm.response.json().balance)).to.eql(70000));"
-              ]
-            }
-          }],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": "{{baseUrl}}/api/v1/accounts/{{aliceAccountId}}/balance"
-          }
-        },
-        {
-          "name": "04.3 — Cùng key nhưng amount khác → conflict",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "type": "text/javascript",
-              "exec": [
-                "pm.test('HTTP 409 Conflict', () => pm.response.to.have.status(409));",
-                "const json = pm.response.json();",
-                "pm.test('Error code là IDEMPOTENCY_CONFLICT', () => {",
-                "  pm.expect(json.code).to.eql('IDEMPOTENCY_CONFLICT');",
-                "  pm.expect(json.details.idempotencyKey).to.eql(pm.collectionVariables.get('transferKey'));",
-                "});"
-              ]
-            }
-          }],
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Idempotency-Key", "value": "{{transferKey}}", "type": "text" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"fromAccountId\": {{aliceAccountId}},\n  \"toAccountId\": {{bobAccountId}},\n  \"amount\": \"31000.00\",\n  \"currency\": \"VND\",\n  \"description\": \"Demo payment\"\n}",
-              "options": { "raw": { "language": "json" } }
-            },
-            "url": "{{baseUrl}}/api/v1/transfers"
-          }
-        }
-      ]
+      "name":"04 — Replay faucet không cấp tiền lần hai",
+      "request":{"method":"POST","header":[{"key":"Content-Type","value":"application/json"},{"key":"Idempotency-Key","value":"{{faucetKey}}"}],"url":"{{baseUrl}}/api/v1/faucet/claims","body":{"mode":"raw","raw":"{\"accountId\":{{aliceAccountId}}}"}},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":[
+        "pm.test('Replay cùng transaction', () => { pm.response.to.have.status(200); const j = pm.response.json(); pm.expect(j.replayed).to.eql(true); pm.expect(String(j.transactionId)).to.eql(pm.collectionVariables.get('faucetTransactionId')); });"
+      ]}}]
     },
     {
-      "name": "05 — Rollback khi nghiệp vụ thất bại",
-      "description": "Chụp balance trước, thử chuyển vượt số dư, sau đó xác nhận cả hai balance không đổi.",
-      "item": [
-        {
-          "name": "05.1 — Chụp balance Alice trước failure",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "type": "text/javascript",
-              "exec": [
-                "pm.test('HTTP 200 OK', () => pm.response.to.have.status(200));",
-                "const balance = Number(pm.response.json().balance);",
-                "pm.collectionVariables.set('aliceBalanceBeforeFailure', String(balance));",
-                "pm.test('Đã lưu balance Alice', () => pm.expect(balance).to.eql(70000));"
-              ]
-            }
-          }],
-          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/v1/accounts/{{aliceAccountId}}/balance" }
-        },
-        {
-          "name": "05.2 — Chụp balance Bob trước failure",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "type": "text/javascript",
-              "exec": [
-                "pm.test('HTTP 200 OK', () => pm.response.to.have.status(200));",
-                "const balance = Number(pm.response.json().balance);",
-                "pm.collectionVariables.set('bobBalanceBeforeFailure', String(balance));",
-                "pm.test('Đã lưu balance Bob', () => pm.expect(balance).to.eql(30000));"
-              ]
-            }
-          }],
-          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/v1/accounts/{{bobAccountId}}/balance" }
-        },
-        {
-          "name": "05.3 — Bob chuyển 999.999 → không đủ tiền",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "type": "text/javascript",
-              "exec": [
-                "pm.test('HTTP 409 Conflict', () => pm.response.to.have.status(409));",
-                "const json = pm.response.json();",
-                "pm.test('Error code là INSUFFICIENT_FUNDS', () => pm.expect(json.code).to.eql('INSUFFICIENT_FUNDS'));"
-              ]
-            }
-          }],
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Idempotency-Key", "value": "failure-{{runSuffix}}", "type": "text" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"fromAccountId\": {{bobAccountId}},\n  \"toAccountId\": {{aliceAccountId}},\n  \"amount\": \"999999.00\",\n  \"currency\": \"VND\",\n  \"description\": \"Must roll back\"\n}",
-              "options": { "raw": { "language": "json" } }
-            },
-            "url": "{{baseUrl}}/api/v1/transfers"
-          }
-        },
-        {
-          "name": "05.4 — Xác nhận balance Alice không đổi",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "type": "text/javascript",
-              "exec": [
-                "pm.test('HTTP 200 OK', () => pm.response.to.have.status(200));",
-                "pm.test('Balance Alice được rollback', () => {",
-                "  pm.expect(Number(pm.response.json().balance)).to.eql(Number(pm.collectionVariables.get('aliceBalanceBeforeFailure')));",
-                "});"
-              ]
-            }
-          }],
-          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/v1/accounts/{{aliceAccountId}}/balance" }
-        },
-        {
-          "name": "05.5 — Xác nhận balance Bob không đổi",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "type": "text/javascript",
-              "exec": [
-                "pm.test('HTTP 200 OK', () => pm.response.to.have.status(200));",
-                "pm.test('Balance Bob được rollback', () => {",
-                "  pm.expect(Number(pm.response.json().balance)).to.eql(Number(pm.collectionVariables.get('bobBalanceBeforeFailure')));",
-                "});"
-              ]
-            }
-          }],
-          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/v1/accounts/{{bobAccountId}}/balance" }
-        }
-      ]
+      "name":"05 — Logout Alice",
+      "request":{"method":"POST","header":[],"url":"{{baseUrl}}/api/v1/auth/logout"},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Logout thành công', () => pm.response.to.have.status(204));"]}}]
     },
     {
-      "name": "06 — Error contract",
-      "description": "Các lỗi quan trọng đều trả ErrorResponse thống nhất và không làm thay đổi tiền.",
-      "item": [
-        {
-          "name": "06.1 — Chuyển cùng account → SAME_ACCOUNT",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "type": "text/javascript",
-              "exec": [
-                "pm.test('HTTP 400 Bad Request', () => pm.response.to.have.status(400));",
-                "pm.test('Error code là SAME_ACCOUNT', () => pm.expect(pm.response.json().code).to.eql('SAME_ACCOUNT'));"
-              ]
-            }
-          }],
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Idempotency-Key", "value": "same-account-{{runSuffix}}", "type": "text" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"fromAccountId\": {{aliceAccountId}},\n  \"toAccountId\": {{aliceAccountId}},\n  \"amount\": \"10.00\",\n  \"currency\": \"VND\"\n}",
-              "options": { "raw": { "language": "json" } }
-            },
-            "url": "{{baseUrl}}/api/v1/transfers"
-          }
-        },
-        {
-          "name": "06.2 — Thiếu Idempotency-Key → validation error",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "type": "text/javascript",
-              "exec": [
-                "pm.test('HTTP 400 Bad Request', () => pm.response.to.have.status(400));",
-                "const json = pm.response.json();",
-                "pm.test('Error contract chỉ rõ header bị thiếu', () => {",
-                "  pm.expect(json.code).to.eql('VALIDATION_ERROR');",
-                "  pm.expect(json.message).to.eql('Required request header is missing');",
-                "  pm.expect(json.details.header).to.eql('Idempotency-Key');",
-                "});"
-              ]
-            }
-          }],
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"accountId\": {{aliceAccountId}},\n  \"amount\": \"10.00\",\n  \"currency\": \"VND\"\n}",
-              "options": { "raw": { "language": "json" } }
-            },
-            "url": "{{baseUrl}}/api/v1/deposits"
-          }
-        },
-        {
-          "name": "06.3 — Request body không hợp lệ",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "type": "text/javascript",
-              "exec": [
-                "pm.test('HTTP 400 Bad Request', () => pm.response.to.have.status(400));",
-                "const json = pm.response.json();",
-                "pm.test('Trả field errors cho amount và currency', () => {",
-                "  pm.expect(json.code).to.eql('VALIDATION_ERROR');",
-                "  pm.expect(json.details).to.have.property('amount');",
-                "  pm.expect(json.details).to.have.property('currency');",
-                "});"
-              ]
-            }
-          }],
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Idempotency-Key", "value": "invalid-{{runSuffix}}", "type": "text" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"fromAccountId\": {{aliceAccountId}},\n  \"toAccountId\": {{bobAccountId}},\n  \"amount\": \"0.00\",\n  \"currency\": \"VN\"\n}",
-              "options": { "raw": { "language": "json" } }
-            },
-            "url": "{{baseUrl}}/api/v1/transfers"
-          }
-        },
-        {
-          "name": "06.4 — Account không tồn tại",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "type": "text/javascript",
-              "exec": [
-                "pm.test('HTTP 404 Not Found', () => pm.response.to.have.status(404));",
-                "pm.test('Error code là ACCOUNT_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('ACCOUNT_NOT_FOUND'));"
-              ]
-            }
-          }],
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Idempotency-Key", "value": "missing-account-{{runSuffix}}", "type": "text" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"fromAccountId\": 999999999,\n  \"toAccountId\": {{bobAccountId}},\n  \"amount\": \"10.00\",\n  \"currency\": \"VND\"\n}",
-              "options": { "raw": { "language": "json" } }
-            },
-            "url": "{{baseUrl}}/api/v1/transfers"
-          }
-        }
-      ]
+      "name":"06 — Tạo Bob (tự đăng nhập)",
+      "request":{"method":"POST","header":[{"key":"Content-Type","value":"application/json"}],"url":"{{baseUrl}}/api/v1/auth/register","body":{"mode":"raw","raw":"{\"username\":\"bob-{{runSuffix}}\",\"email\":\"bob-{{runSuffix}}@example.com\",\"password\":\"DemoSecret123!\"}"}},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":[
+        "pm.test('Bob được tạo', () => pm.response.to.have.status(201)); pm.collectionVariables.set('bobUserId', String(pm.response.json().id));"
+      ]}}]
     },
     {
-      "name": "07 — Lookup API tùy chọn",
-      "description": "Các request đọc bổ sung để trình bày account number, user và transaction detail.",
-      "item": [
-        {
-          "name": "07.1 — Đọc Alice theo ID",
-          "event": [{
-            "listen": "test",
-            "script": { "type": "text/javascript", "exec": [
-              "pm.test('HTTP 200 OK', () => pm.response.to.have.status(200));",
-              "pm.test('Đúng Alice', () => pm.expect(String(pm.response.json().id)).to.eql(pm.collectionVariables.get('aliceUserId')));"
-            ] }
-          }],
-          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/v1/users/{{aliceUserId}}" }
-        },
-        {
-          "name": "07.2 — Tra account Alice bằng account number",
-          "event": [{
-            "listen": "test",
-            "script": { "type": "text/javascript", "exec": [
-              "pm.test('HTTP 200 OK', () => pm.response.to.have.status(200));",
-              "pm.test('Đúng account Alice', () => pm.expect(String(pm.response.json().id)).to.eql(pm.collectionVariables.get('aliceAccountId')));"
-            ] }
-          }],
-          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/v1/accounts/by-number/{{aliceAccountNumber}}" }
-        },
-        {
-          "name": "07.3 — Đọc lại transaction transfer",
-          "event": [{
-            "listen": "test",
-            "script": { "type": "text/javascript", "exec": [
-              "pm.test('HTTP 200 OK', () => pm.response.to.have.status(200));",
-              "pm.test('Đúng transfer và có 2 entries', () => {",
-              "  const json = pm.response.json();",
-              "  pm.expect(json.type).to.eql('TRANSFER');",
-              "  pm.expect(json.entries).to.have.lengthOf(2);",
-              "});"
-            ] }
-          }],
-          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/v1/transactions/{{transferTransactionId}}" }
-        }
-      ]
+      "name":"07 — Tạo account Bob",
+      "request":{"method":"POST","header":[{"key":"Content-Type","value":"application/json"}],"url":"{{baseUrl}}/api/v1/accounts","body":{"mode":"raw","raw":"{\"currency\":\"VND\"}"}},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":[
+        "const j = pm.response.json();",
+        "pm.test('Account thuộc Bob và balance = 0', () => { pm.response.to.have.status(201); pm.expect(String(j.userId)).to.eql(pm.collectionVariables.get('bobUserId')); pm.expect(Number(j.balance)).to.eql(0); });",
+        "pm.collectionVariables.set('bobAccountId', String(j.id)); pm.collectionVariables.set('bobAccountNumber', j.accountNumber);"
+      ]}}]
+    },
+    {
+      "name":"08 — Bob không thể đọc số dư Alice",
+      "request":{"method":"GET","header":[],"url":"{{baseUrl}}/api/v1/accounts/{{aliceAccountId}}/balance"},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Ẩn account không thuộc user', () => { pm.response.to.have.status(404); pm.expect(pm.response.json().code).to.eql('ACCOUNT_NOT_FOUND'); });"]}}]
+    },
+    {
+      "name":"09 — Logout Bob",
+      "request":{"method":"POST","header":[],"url":"{{baseUrl}}/api/v1/auth/logout"},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Logout thành công', () => pm.response.to.have.status(204));"]}}]
+    },
+    {
+      "name":"10 — Login Alice",
+      "request":{"method":"POST","header":[{"key":"Content-Type","value":"application/json"}],"url":"{{baseUrl}}/api/v1/auth/login","body":{"mode":"raw","raw":"{\"login\":\"alice-{{runSuffix}}\",\"password\":\"DemoSecret123!\"}"}},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Đúng session Alice', () => { pm.response.to.have.status(200); pm.expect(String(pm.response.json().id)).to.eql(pm.collectionVariables.get('aliceUserId')); });"]}}]
+    },
+    {
+      "name":"11 — Chuyển 30.000 từ Alice sang Bob",
+      "request":{"method":"POST","header":[{"key":"Content-Type","value":"application/json"},{"key":"Idempotency-Key","value":"{{transferKey}}"}],"url":"{{baseUrl}}/api/v1/transfers","body":{"mode":"raw","raw":"{\"fromAccountId\":{{aliceAccountId}},\"recipientAccountNumber\":\"{{bobAccountNumber}}\",\"amount\":\"30000.00\",\"description\":\"Demo payment\"}"}},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":[
+        "const j = pm.response.json();",
+        "pm.test('Transfer bảo toàn 100.000', () => { pm.response.to.have.status(201); pm.expect(j.replayed).to.eql(false); pm.expect(Number(j.debitBalanceAfter)).to.eql(70000); pm.expect(Number(j.creditBalanceAfter)).to.eql(30000); });",
+        "pm.collectionVariables.set('transferTransactionId', String(j.transactionId));"
+      ]}}]
+    },
+    {
+      "name":"12 — Receipt có hai bút toán cân bằng",
+      "request":{"method":"GET","header":[],"url":"{{baseUrl}}/api/v1/transactions/{{transferTransactionId}}"},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":[
+        "pm.test('Exact double-entry', () => { pm.response.to.have.status(200); const es = pm.response.json().entries; pm.expect(es).to.have.lengthOf(2); const d = es.find(e => e.entryType === 'DEBIT'); const c = es.find(e => e.entryType === 'CREDIT'); pm.expect(String(d.accountId)).to.eql(pm.collectionVariables.get('aliceAccountId')); pm.expect(String(c.accountId)).to.eql(pm.collectionVariables.get('bobAccountId')); pm.expect(Number(d.amount)).to.eql(30000); pm.expect(Number(c.amount)).to.eql(30000); pm.expect(Number(d.balanceAfter)).to.eql(70000); pm.expect(Number(c.balanceAfter)).to.eql(30000); });"
+      ]}}]
+    },
+    {
+      "name":"13 — Replay transfer",
+      "request":{"method":"POST","header":[{"key":"Content-Type","value":"application/json"},{"key":"Idempotency-Key","value":"{{transferKey}}"}],"url":"{{baseUrl}}/api/v1/transfers","body":{"mode":"raw","raw":"{\"fromAccountId\":{{aliceAccountId}},\"recipientAccountNumber\":\"{{bobAccountNumber}}\",\"amount\":\"30000.00\",\"description\":\"Demo payment\"}"}},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Replay không tạo transaction mới', () => { pm.response.to.have.status(200); const j = pm.response.json(); pm.expect(j.replayed).to.eql(true); pm.expect(String(j.transactionId)).to.eql(pm.collectionVariables.get('transferTransactionId')); });"]}}]
+    },
+    {
+      "name":"14 — Key cũ với amount mới bị conflict",
+      "request":{"method":"POST","header":[{"key":"Content-Type","value":"application/json"},{"key":"Idempotency-Key","value":"{{transferKey}}"}],"url":"{{baseUrl}}/api/v1/transfers","body":{"mode":"raw","raw":"{\"fromAccountId\":{{aliceAccountId}},\"recipientAccountNumber\":\"{{bobAccountNumber}}\",\"amount\":\"31000.00\",\"description\":\"Demo payment\"}"}},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('IDEMPOTENCY_CONFLICT', () => { pm.response.to.have.status(409); pm.expect(pm.response.json().code).to.eql('IDEMPOTENCY_CONFLICT'); });"]}}]
+    },
+    {
+      "name":"15 — Alice vẫn còn 70.000",
+      "request":{"method":"GET","header":[],"url":"{{baseUrl}}/api/v1/accounts/{{aliceAccountId}}/balance"},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Không trừ thêm tiền', () => { pm.response.to.have.status(200); pm.expect(Number(pm.response.json().balance)).to.eql(70000); });"]}}]
+    },
+    {
+      "name":"16 — History trang đầu",
+      "request":{"method":"GET","header":[],"url":"{{baseUrl}}/api/v1/accounts/{{aliceAccountId}}/transactions?limit=1"},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":[
+        "const j = pm.response.json();",
+        "pm.test('Transfer mới nhất, còn trang sau', () => { pm.response.to.have.status(200); pm.expect(j.items).to.have.lengthOf(1); pm.expect(String(j.items[0].transactionId)).to.eql(pm.collectionVariables.get('transferTransactionId')); pm.expect(j.hasMore).to.eql(true); pm.expect(j.nextCursor).to.be.a('string').and.not.empty; });",
+        "pm.collectionVariables.set('historyCursor', encodeURIComponent(j.nextCursor));"
+      ]}}]
+    },
+    {
+      "name":"17 — History trang sau không trùng",
+      "request":{"method":"GET","header":[],"url":"{{baseUrl}}/api/v1/accounts/{{aliceAccountId}}/transactions?limit=1&cursor={{historyCursor}}"},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Trang cuối chứa faucet', () => { pm.response.to.have.status(200); const j = pm.response.json(); pm.expect(j.items).to.have.lengthOf(1); pm.expect(String(j.items[0].transactionId)).to.eql(pm.collectionVariables.get('faucetTransactionId')); pm.expect(j.hasMore).to.eql(false); pm.expect(j.nextCursor).to.eql(null); });"]}}]
+    },
+    {
+      "name":"18 — Same account bị từ chối",
+      "request":{"method":"POST","header":[{"key":"Content-Type","value":"application/json"},{"key":"Idempotency-Key","value":"same-{{runSuffix}}"}],"url":"{{baseUrl}}/api/v1/transfers","body":{"mode":"raw","raw":"{\"fromAccountId\":{{aliceAccountId}},\"recipientAccountNumber\":\"{{aliceAccountNumber}}\",\"amount\":\"10.00\"}"}},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('SAME_ACCOUNT', () => { pm.response.to.have.status(400); pm.expect(pm.response.json().code).to.eql('SAME_ACCOUNT'); });"]}}]
+    },
+    {
+      "name":"19 — Thiếu Idempotency-Key",
+      "request":{"method":"POST","header":[{"key":"Content-Type","value":"application/json"}],"url":"{{baseUrl}}/api/v1/transfers","body":{"mode":"raw","raw":"{\"fromAccountId\":{{aliceAccountId}},\"recipientAccountNumber\":\"{{bobAccountNumber}}\",\"amount\":\"10.00\"}"}},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('VALIDATION_ERROR', () => { pm.response.to.have.status(400); pm.expect(pm.response.json().code).to.eql('VALIDATION_ERROR'); });"]}}]
+    },
+    {
+      "name":"20 — Logout Alice",
+      "request":{"method":"POST","header":[],"url":"{{baseUrl}}/api/v1/auth/logout"},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Logout thành công', () => pm.response.to.have.status(204));"]}}]
+    },
+    {
+      "name":"21 — Login Bob",
+      "request":{"method":"POST","header":[{"key":"Content-Type","value":"application/json"}],"url":"{{baseUrl}}/api/v1/auth/login","body":{"mode":"raw","raw":"{\"login\":\"bob-{{runSuffix}}\",\"password\":\"DemoSecret123!\"}"}},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Đúng session Bob', () => { pm.response.to.have.status(200); pm.expect(String(pm.response.json().id)).to.eql(pm.collectionVariables.get('bobUserId')); });"]}}]
+    },
+    {
+      "name":"22 — Bob có 30.000",
+      "request":{"method":"GET","header":[],"url":"{{baseUrl}}/api/v1/accounts/{{bobAccountId}}/balance"},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Balance Bob', () => { pm.response.to.have.status(200); pm.expect(Number(pm.response.json().balance)).to.eql(30000); });"]}}]
+    },
+    {
+      "name":"23 — Không đủ tiền phải rollback",
+      "request":{"method":"POST","header":[{"key":"Content-Type","value":"application/json"},{"key":"Idempotency-Key","value":"failure-{{runSuffix}}"}],"url":"{{baseUrl}}/api/v1/transfers","body":{"mode":"raw","raw":"{\"fromAccountId\":{{bobAccountId}},\"recipientAccountNumber\":\"{{aliceAccountNumber}}\",\"amount\":\"999999.00\"}"}},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('INSUFFICIENT_FUNDS', () => { pm.response.to.have.status(409); pm.expect(pm.response.json().code).to.eql('INSUFFICIENT_FUNDS'); });"]}}]
+    },
+    {
+      "name":"24 — Bob vẫn có 30.000",
+      "request":{"method":"GET","header":[],"url":"{{baseUrl}}/api/v1/accounts/{{bobAccountId}}/balance"},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Balance Bob không đổi', () => { pm.response.to.have.status(200); pm.expect(Number(pm.response.json().balance)).to.eql(30000); });"]}}]
+    },
+    {
+      "name":"25 — Bob không thể chuyển từ account Alice",
+      "request":{"method":"POST","header":[{"key":"Content-Type","value":"application/json"},{"key":"Idempotency-Key","value":"ownership-{{runSuffix}}"}],"url":"{{baseUrl}}/api/v1/transfers","body":{"mode":"raw","raw":"{\"fromAccountId\":{{aliceAccountId}},\"recipientAccountNumber\":\"{{bobAccountNumber}}\",\"amount\":\"10.00\"}"}},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Không thể dùng source của người khác', () => { pm.response.to.have.status(404); pm.expect(pm.response.json().code).to.eql('ACCOUNT_NOT_FOUND'); });"]}}]
+    },
+    {
+      "name":"26 — Logout Bob",
+      "request":{"method":"POST","header":[],"url":"{{baseUrl}}/api/v1/auth/logout"},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Logout thành công', () => pm.response.to.have.status(204));"]}}]
+    },
+    {
+      "name":"27 — Login lại Alice",
+      "request":{"method":"POST","header":[{"key":"Content-Type","value":"application/json"}],"url":"{{baseUrl}}/api/v1/auth/login","body":{"mode":"raw","raw":"{\"login\":\"alice-{{runSuffix}}\",\"password\":\"DemoSecret123!\"}"}},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Đúng session Alice', () => { pm.response.to.have.status(200); pm.expect(String(pm.response.json().id)).to.eql(pm.collectionVariables.get('aliceUserId')); });"]}}]
+    },
+    {
+      "name":"28 — Alice vẫn có 70.000 sau các request thất bại",
+      "request":{"method":"GET","header":[],"url":"{{baseUrl}}/api/v1/accounts/{{aliceAccountId}}/balance"},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Balance Alice không đổi', () => { pm.response.to.have.status(200); pm.expect(Number(pm.response.json().balance)).to.eql(70000); });"]}}]
+    },
+    {
+      "name":"29 — Logout kết thúc demo",
+      "request":{"method":"POST","header":[],"url":"{{baseUrl}}/api/v1/auth/logout"},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Logout thành công', () => pm.response.to.have.status(204));"]}}]
+    },
+    {
+      "name":"30 — API riêng tư yêu cầu đăng nhập",
+      "request":{"method":"GET","header":[],"url":"{{baseUrl}}/api/v1/accounts"},
+      "event":[{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Session đã bị hủy', () => pm.response.to.have.status(401));"]}}]
     }
   ]
 }

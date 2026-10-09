@@ -5,6 +5,7 @@ import com.LDQuang.mini_ledger.api.error.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Map;
@@ -46,5 +47,13 @@ public class UserService {
     @Transactional(readOnly = true)
     public Optional<User> findByLogin(String login) {
         return userRepository.findByUsernameIgnoreCaseOrEmailIgnoreCase(login, login);
+    }
+
+    /** Serialize per-user quota checks until the caller's transaction commits. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void lockForQuota(Long id) {
+        userRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND,
+                        "User with id " + id + " not found", Map.of("userId", id)));
     }
 }

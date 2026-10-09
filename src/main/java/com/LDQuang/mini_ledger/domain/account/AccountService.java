@@ -23,7 +23,7 @@ public class AccountService {
 
     @Transactional
     public Account create(Long userId, String currency) {
-        userService.getById(userId);
+        userService.lockForQuota(userId);
         if (accountRepository.countByUserId(userId) >= MAX_ACCOUNTS_PER_USER) {
             throw new BusinessException(ErrorCode.ACCOUNT_LIMIT_REACHED,
                     "A demo user can have at most " + MAX_ACCOUNTS_PER_USER + " accounts",

@@ -46,3 +46,4 @@ frontend/test-results/
 !.env.example
 secrets/
 backups/
+.deploy/

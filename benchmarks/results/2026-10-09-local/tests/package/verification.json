@@ -1,0 +1,11 @@
+{
+  "recordedAt": "2026-10-09T09:17:34.135Z",
+  "command": "./mvnw.cmd package",
+  "exitCode": 0,
+  "tests": 19,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "jarSha256": "f80a1fb37097c95b2f3f465ef2dca91fa20586abf22da943b82f63057e56185a",
+  "jarInspection": "jar tf: no Benchmark classes, benchmark/ resources, seed.sql or TestcontainersConfiguration"
+}

@@ -1,0 +1,11 @@
+{
+  "passed": true,
+  "project": "ledger-drill-20261009201900-923",
+  "originalImage": "sha256:bae050704733dc908dae2cf9baf9584a8e37830fcf18d1653171911fffabf022",
+  "upgradeImage": "sha256:ad67ad8057b69680f6a55679ff5a3c050c3dcb187c5525c5c5fbbf5a607afed6",
+  "rollbackImage": "sha256:bae050704733dc908dae2cf9baf9584a8e37830fcf18d1653171911fffabf022",
+  "restoreFingerprintMatched": true,
+  "corruptBackupRejected": true,
+  "rollbackFingerprintMatched": true,
+  "postmanBeforeAndAfter": true
+}

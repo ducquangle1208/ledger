@@ -1,0 +1,10 @@
+# Local rehearsal only: separate project/volumes; no public TLS or ports 80/443.
+services:
+  backend:
+    environment:
+      SERVER_SERVLET_SESSION_COOKIE_SECURE: "false"
+  caddy:
+    environment:
+      APP_DOMAIN: ":80"
+    ports: !override
+      - "127.0.0.1:18088:80"

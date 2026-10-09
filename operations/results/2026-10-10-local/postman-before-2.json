@@ -1,0 +1,370 @@
+{
+  "recordedAt": "2026-10-09T20:19:30.813Z",
+  "iteration": 2,
+  "baseUrl": "http://127.0.0.1:18088",
+  "passed": true,
+  "node": "v24.19.0",
+  "newman": "6.2.1",
+  "collectionSha256": "4dd8fa95c25d23262c6b49c92842ca9e37ab8036d8ecf2e15c82a4cf8ae0f0bd",
+  "environmentSha256": "a87fdde13c77ff7deddbc02d2bec5f12baa739775282b476ea84af839885600e",
+  "stats": {
+    "iterations": {
+      "total": 1,
+      "pending": 0,
+      "failed": 0
+    },
+    "items": {
+      "total": 31,
+      "pending": 0,
+      "failed": 0
+    },
+    "scripts": {
+      "total": 63,
+      "pending": 0,
+      "failed": 0
+    },
+    "prerequests": {
+      "total": 31,
+      "pending": 0,
+      "failed": 0
+    },
+    "requests": {
+      "total": 52,
+      "pending": 0,
+      "failed": 0
+    },
+    "tests": {
+      "total": 31,
+      "pending": 0,
+      "failed": 0
+    },
+    "assertions": {
+      "total": 31,
+      "pending": 0,
+      "failed": 0
+    },
+    "testScripts": {
+      "total": 31,
+      "pending": 0,
+      "failed": 0
+    },
+    "prerequestScripts": {
+      "total": 32,
+      "pending": 0,
+      "failed": 0
+    }
+  },
+  "failureCount": 0,
+  "executions": [
+    {
+      "request": "00 — Khởi tạo demo và lấy CSRF",
+      "status": 200,
+      "assertions": [
+        {
+          "name": "CSRF endpoint trả token",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "01 — Tạo Alice (tự đăng nhập)",
+      "status": 201,
+      "assertions": [
+        {
+          "name": "Alice được tạo, không lộ hash",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "02 — Tạo account Alice",
+      "status": 201,
+      "assertions": [
+        {
+          "name": "Account thuộc Alice và balance = 0",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "03 — Faucet cấp 100.000 VND",
+      "status": 201,
+      "assertions": [
+        {
+          "name": "Faucet tạo deposit 100.000",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "04 — Replay faucet không cấp tiền lần hai",
+      "status": 200,
+      "assertions": [
+        {
+          "name": "Replay cùng transaction",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "05 — Logout Alice",
+      "status": 204,
+      "assertions": [
+        {
+          "name": "Logout thành công",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "06 — Tạo Bob (tự đăng nhập)",
+      "status": 201,
+      "assertions": [
+        {
+          "name": "Bob được tạo",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "07 — Tạo account Bob",
+      "status": 201,
+      "assertions": [
+        {
+          "name": "Account thuộc Bob và balance = 0",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "08 — Bob không thể đọc số dư Alice",
+      "status": 404,
+      "assertions": [
+        {
+          "name": "Ẩn account không thuộc user",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "09 — Logout Bob",
+      "status": 204,
+      "assertions": [
+        {
+          "name": "Logout thành công",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "10 — Login Alice",
+      "status": 200,
+      "assertions": [
+        {
+          "name": "Đúng session Alice",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "11 — Chuyển 30.000 từ Alice sang Bob",
+      "status": 201,
+      "assertions": [
+        {
+          "name": "Transfer bảo toàn 100.000",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "12 — Receipt có hai bút toán cân bằng",
+      "status": 200,
+      "assertions": [
+        {
+          "name": "Exact double-entry",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "13 — Replay transfer",
+      "status": 200,
+      "assertions": [
+        {
+          "name": "Replay không tạo transaction mới",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "14 — Key cũ với amount mới bị conflict",
+      "status": 409,
+      "assertions": [
+        {
+          "name": "IDEMPOTENCY_CONFLICT",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "15 — Alice vẫn còn 70.000",
+      "status": 200,
+      "assertions": [
+        {
+          "name": "Không trừ thêm tiền",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "16 — History trang đầu",
+      "status": 200,
+      "assertions": [
+        {
+          "name": "Transfer mới nhất, còn trang sau",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "17 — History trang sau không trùng",
+      "status": 200,
+      "assertions": [
+        {
+          "name": "Trang cuối chứa faucet",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "18 — Same account bị từ chối",
+      "status": 400,
+      "assertions": [
+        {
+          "name": "SAME_ACCOUNT",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "19 — Thiếu Idempotency-Key",
+      "status": 400,
+      "assertions": [
+        {
+          "name": "VALIDATION_ERROR",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "20 — Logout Alice",
+      "status": 204,
+      "assertions": [
+        {
+          "name": "Logout thành công",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "21 — Login Bob",
+      "status": 200,
+      "assertions": [
+        {
+          "name": "Đúng session Bob",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "22 — Bob có 30.000",
+      "status": 200,
+      "assertions": [
+        {
+          "name": "Balance Bob",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "23 — Không đủ tiền phải rollback",
+      "status": 409,
+      "assertions": [
+        {
+          "name": "INSUFFICIENT_FUNDS",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "24 — Bob vẫn có 30.000",
+      "status": 200,
+      "assertions": [
+        {
+          "name": "Balance Bob không đổi",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "25 — Bob không thể chuyển từ account Alice",
+      "status": 404,
+      "assertions": [
+        {
+          "name": "Không thể dùng source của người khác",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "26 — Logout Bob",
+      "status": 204,
+      "assertions": [
+        {
+          "name": "Logout thành công",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "27 — Login lại Alice",
+      "status": 200,
+      "assertions": [
+        {
+          "name": "Đúng session Alice",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "28 — Alice vẫn có 70.000 sau các request thất bại",
+      "status": 200,
+      "assertions": [
+        {
+          "name": "Balance Alice không đổi",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "29 — Logout kết thúc demo",
+      "status": 204,
+      "assertions": [
+        {
+          "name": "Logout thành công",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "request": "30 — API riêng tư yêu cầu đăng nhập",
+      "status": 401,
+      "assertions": [
+        {
+          "name": "Session đã bị hủy",
+          "passed": true
+        }
+      ]
+    }
+  ]
+}

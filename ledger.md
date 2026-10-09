@@ -11,7 +11,7 @@ Mục tiêu: xây một backend mô phỏng hệ thống ngân hàng/ví điện
 ```
 Client → Controller → Service (business + @Transactional) → Repository (JPA/JDBC)
                                      │
-                        AOP Aspect ghi Audit Log (append-only)
+                        AuditService ghi Audit Log (cùng transaction)
                                      │
                     Redis (cache-aside cho dữ liệu đọc nhiều)
                                      │
@@ -193,18 +193,9 @@ So sánh 4 mức: READ UNCOMMITTED (Postgres coi như READ COMMITTED), READ COMM
 
 ## 6. Audit log bất biến
 
-Dùng AOP để tách hoàn toàn logic audit khỏi business logic:
-```java
-@Aspect
-@Component
-public class AuditAspect {
-    @AfterReturning(pointcut = "@annotation(Audited)", returning = "result")
-    public void audit(JoinPoint jp, Object result) {
-        // build old/new value, tính hash, ghi record — INSERT only
-    }
-}
-```
-Để tăng tính "tamper-evident" (một điểm cộng lớn khi khoe dự án): mỗi bản ghi audit chứa `record_hash = SHA256(prev_hash + payload)`, tạo thành hash-chain giống blockchain đơn giản — nếu ai đó sửa 1 dòng cũ, toàn bộ chain phía sau sẽ sai hash khi verify.
+Triển khai hiện tại gọi `AuditService.appendMovement` trực tiếp từ `MoneyMovementService`, propagation MANDATORY, để audit và tiền cùng commit/rollback. Khóa account trước, sau đó khóa singleton head của chain đến cuối transaction. Replay trả kết quả cũ và không thêm audit.
+
+Hash SHA-256 bao phủ payload JSON canonical phiên bản v1, gồm previous hash, actor, entity/action, old/new values và timestamp. Verifier dùng snapshot REPEATABLE_READ, kiểm tra từng liên kết/nội dung và head/count để phát hiện cả xóa đuôi. Trigger chặn UPDATE/DELETE/TRUNCATE; DBA vẫn có thể viết lại toàn bộ chain nên cần checkpoint bên ngoài. V4 không backfill giao dịch cũ. Xem [thiết kế và lệnh verify](docs/audit.md), cùng [diễn tập restore/rollback](docs/operations.md).
 
 ---
 
@@ -262,9 +253,9 @@ public void onAccountUpdated(Long accountId) { ... }
 ```
 src/main/resources/db/migration/
   V1__init_schema.sql
-  V2__add_indexes.sql
-  V3__add_audit_hash_chain.sql
-  V4__add_idempotency_table.sql
+  V2__seed_system_cash_account.sql
+  V3__sessions_faucet_and_audit.sql
+  V4__audit_chain.sql
 ```
 Nguyên tắc: không sửa file migration đã chạy — luôn thêm file mới. Đây cũng là điểm nên nhấn khi viết README (thể hiện hiểu quy trình quản lý schema an toàn cho production).
 

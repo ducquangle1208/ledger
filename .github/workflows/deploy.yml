@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: Image tag to deploy (normally a commit SHA)
+        description: Full 40-character commit SHA to build and deploy
         required: true
 
 permissions:
@@ -19,8 +19,33 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     environment: production
+    outputs:
+      backend_ref: ${{ steps.names.outputs.backend }}@${{ steps.backend.outputs.digest }}
+      frontend_ref: ${{ steps.names.outputs.frontend }}@${{ steps.frontend.outputs.digest }}
     steps:
+      - name: Validate requested revision
+        env:
+          REQUESTED_SHA: ${{ inputs.image_tag }}
+        run: |
+          [[ "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'Supply a full lowercase commit SHA'; exit 2; }
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.image_tag }}
+      - name: Resolve image names and prepare operations bundle
+        id: names
+        run: |
+          owner=$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          echo "backend=ghcr.io/$owner/mini-ledger-backend" >> "$GITHUB_OUTPUT"
+          echo "frontend=ghcr.io/$owner/mini-ledger-frontend" >> "$GITHUB_OUTPUT"
+          mkdir -p release-ops/.deploy
+          cp -r scripts compose.prod.yaml Caddyfile .env.example release-ops/
+          git rev-parse HEAD > release-ops/.deploy/ops-revision
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-ops-${{ inputs.image_tag }}
+          path: release-ops/
+          include-hidden-files: true
+          retention-days: 14
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -28,15 +53,17 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
+        id: backend
         with:
           context: .
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/mini-ledger-backend:${{ inputs.image_tag }}
+          tags: ${{ steps.names.outputs.backend }}:${{ inputs.image_tag }}
       - uses: docker/build-push-action@v6
+        id: frontend
         with:
           context: frontend
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/mini-ledger-frontend:${{ inputs.image_tag }}
+          tags: ${{ steps.names.outputs.frontend }}:${{ inputs.image_tag }}
 
   deploy:
     runs-on: ubuntu-latest
@@ -45,14 +72,19 @@ jobs:
     steps:
       - name: Deploy immutable images over SSH
         uses: appleboy/ssh-action@v1.2.2
+        env:
+          BACKEND_IMAGE: ${{ needs.publish.outputs.backend_ref }}
+          FRONTEND_IMAGE: ${{ needs.publish.outputs.frontend_ref }}
+          RELEASE_REVISION: ${{ inputs.image_tag }}
+          VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script_stop: true
+          envs: BACKEND_IMAGE,FRONTEND_IMAGE,RELEASE_REVISION,VPS_APP_DIR
           script: |
-            cd "${{ secrets.VPS_APP_DIR }}"
-            export BACKEND_IMAGE="ghcr.io/${{ github.repository_owner }}/mini-ledger-backend:${{ inputs.image_tag }}"
-            export FRONTEND_IMAGE="ghcr.io/${{ github.repository_owner }}/mini-ledger-frontend:${{ inputs.image_tag }}"
-            ./scripts/deploy.sh
-            curl --fail --silent --show-error "https://${{ secrets.APP_DOMAIN }}/actuator/health/readiness"
+            set -eu
+            cd "$VPS_APP_DIR"
+            test "$(cat .deploy/ops-revision)" = "$RELEASE_REVISION" || { echo 'Install the matching release-ops bundle before deploying'; exit 2; }
+            sh scripts/deploy.sh

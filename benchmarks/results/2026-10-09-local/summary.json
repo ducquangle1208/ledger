@@ -1,0 +1,96 @@
+{
+  "sql": [
+    {
+      "case": "index-before",
+      "runs": 5,
+      "median_execution_ms": 10.403,
+      "median_shared_hit_blocks": 1011,
+      "median_shared_read_blocks": 0,
+      "scans": [
+        "Seq Scan"
+      ]
+    },
+    {
+      "case": "index-after",
+      "runs": 5,
+      "median_execution_ms": 0.018,
+      "median_shared_hit_blocks": 5,
+      "median_shared_read_blocks": 0,
+      "scans": [
+        "Index Scan (idx_entries_account_created)"
+      ]
+    },
+    {
+      "case": "offset-page1",
+      "runs": 5,
+      "median_execution_ms": 80.475,
+      "median_shared_hit_blocks": 2843,
+      "median_shared_read_blocks": 0,
+      "scans": [
+        "Seq Scan"
+      ]
+    },
+    {
+      "case": "keyset-page1",
+      "runs": 5,
+      "median_execution_ms": 84.009,
+      "median_shared_hit_blocks": 2843,
+      "median_shared_read_blocks": 0,
+      "scans": [
+        "Seq Scan"
+      ]
+    },
+    {
+      "case": "offset-page1000",
+      "runs": 5,
+      "median_execution_ms": 89.058,
+      "median_shared_hit_blocks": 2843,
+      "median_shared_read_blocks": 0,
+      "scans": [
+        "Seq Scan"
+      ]
+    },
+    {
+      "case": "keyset-page1000",
+      "runs": 5,
+      "median_execution_ms": 53.761,
+      "median_shared_hit_blocks": 2590,
+      "median_shared_read_blocks": 0,
+      "scans": [
+        "Seq Scan",
+        "Bitmap Heap Scan",
+        "Bitmap Index Scan (idx_entries_account_created)"
+      ]
+    }
+  ],
+  "http": [
+    {
+      "case": "offset_page1",
+      "samples": 50,
+      "p50_ms": 71.4422,
+      "p95_ms": 84.57596999999998,
+      "error_rate": 0
+    },
+    {
+      "case": "keyset_page1",
+      "samples": 50,
+      "p50_ms": 70.9515,
+      "p95_ms": 87.70381499999999,
+      "error_rate": 0
+    },
+    {
+      "case": "offset_page1000",
+      "samples": 50,
+      "p50_ms": 77.0175,
+      "p95_ms": 88.13407,
+      "error_rate": 0
+    },
+    {
+      "case": "keyset_page1000",
+      "samples": 50,
+      "p50_ms": 48.536649999999995,
+      "p95_ms": 56.525645,
+      "error_rate": 0
+    }
+  ]
+}

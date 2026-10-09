@@ -1,0 +1,14 @@
+{
+  "command": "npm.cmd run test:e2e",
+  "browser": "chromium",
+  "passed": 4,
+  "failed": 0,
+  "retries": 0,
+  "seconds": 28.5,
+  "tests": [
+    "ok 1 [chromium] › e2e\\wallet-flow.spec.ts:70:1 › two users transfer once, see exact balances and balanced receipt entries (4.0s)",
+    "ok 2 [chromium] › e2e\\wallet-flow.spec.ts:96:1 › retry after a committed transfer loses its response replays without charging twice (2.5s)",
+    "ok 3 [chromium] › e2e\\wallet-flow.spec.ts:135:1 › invalid amount, unknown recipient and insufficient funds show errors without changing balances (2.0s)",
+    "ok 4 [chromium] › e2e\\wallet-flow.spec.ts:159:1 › authentication and daily faucet quota are enforced in the browser and API (1.4s)"
+  ]
+}
